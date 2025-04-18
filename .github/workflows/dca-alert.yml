@@ -1,0 +1,29 @@
+name: DCA Stock Alert
+
+on:
+  schedule:
+    - cron: "*/30 15-4 * * 1-5"  # รันทุก 30 นาที เวลาไทย 22:00 - 11:00 (ตลาดหุ้น US เปิด)
+  workflow_dispatch:            # ให้รันเองได้ด้วยปุ่ม Run workflow
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run DCA Alert Script
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python dca_alert.py
