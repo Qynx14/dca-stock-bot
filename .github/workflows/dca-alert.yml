@@ -2,9 +2,10 @@ name: DCA Stock Alert
 
 on:
   schedule:
-    - cron: "*/30 8-21 * * 1-5"  # ทุก 30 นาที (15:00 - 04:00 ตามเวลาไทย)
-  workflow_dispatch:            # ให้รันเองได้ด้วยปุ่ม Run workflow
-
+    - cron: "*/30 8-16 * * 1-5"   # เวลาไทย 15:00 - 23:30
+    - cron: "*/30 0-4 * * 2-6"    # เวลาไทย 00:00 - 04:00
+  workflow_dispatch:
+  
 jobs:
   run-script:
     runs-on: ubuntu-latest
