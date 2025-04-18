@@ -2,7 +2,7 @@ name: DCA Stock Alert
 
 on:
   schedule:
-    - cron: "*/30 15-4 * * 1-5"  # รันทุก 30 นาที เวลาไทย 22:00 - 11:00 (ตลาดหุ้น US เปิด)
+    - cron: "*/30 8-21 * * 1-5"  # ทุก 30 นาที (15:00 - 04:00 ตามเวลาไทย)
   workflow_dispatch:            # ให้รันเองได้ด้วยปุ่ม Run workflow
 
 jobs:
