@@ -6,7 +6,7 @@ import requests
 import os
 
 # ------------------ CONFIG ------------------
-TICKERS = ["NVDA", "AMZN", "RKLB", "TSM", "LLY", "AVGO", "HIMS", "PLTR", "TMDX", "ASML", "ARQT", "V", "META", "ABBV"]
+TICKERS = ["NVDA", "AMZN", "RKLB", "TSM", "LLY", "AVGO", "HIMS", "PLTR", "TMDX", "ASML", "ARQT", "V", "META", "ABBV", "COST", "IONQ", "MSFT", "SNOW", "TEM", "VST"]
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # ------------------ DATA FETCH ------------------
