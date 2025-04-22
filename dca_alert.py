@@ -11,17 +11,19 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # ------------------ DATA FETCH ------------------
 def get_data(ticker, interval="1d", period="2y"):
-    return yf.download(ticker, interval=interval, period=period)
+    return yf.download(ticker, interval=interval, period=period, progress=False)
 
 # ------------------ INDICATORS ------------------
 def calculate_indicators(df):
+    df = df.copy()
+    
     # StochRSI
     delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = -delta.where(delta < 0, 0).rolling(14).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
-    stoch_rsi = (rsi - rsi.rolling(14).min()) / (rsi.rolling(14).max() - rsi.rolling(14).min())
+    stoch_rsi = ((rsi - rsi.rolling(14).min()) / (rsi.rolling(14).max() - rsi.rolling(14).min())).clip(0, 1)
     df['%K'] = stoch_rsi.rolling(3).mean()
     df['%D'] = df['%K'].rolling(3).mean()
 
@@ -34,7 +36,8 @@ def calculate_indicators(df):
     exp2 = df['Close'].ewm(span=26).mean()
     df['MACD'] = exp1 - exp2
     df['MACD_signal'] = df['MACD'].ewm(span=9).mean()
-    return df
+    
+    return df.dropna()
 
 # ------------------ SIGNAL CHECK ------------------
 def check_signals(df_day, df_week, ticker):
@@ -49,20 +52,28 @@ def check_signals(df_day, df_week, ticker):
         macd_week = df_week['MACD'].iloc[-1]
         macd_sig_week = df_week['MACD_signal'].iloc[-1]
 
+        support_14 = df_day['Low'].rolling(14).min().iloc[-1]
+        support_30 = df_day['Low'].rolling(30).min().iloc[-1]
+        support_90 = df_day['Low'].rolling(90).min().iloc[-1]
+
         stoch_alert = k > d and k < 0.2 and d < 0.2
         trend_macd_day = "Uptrend" if macd_day > macd_sig_day else "Downtrend"
         trend_macd_week = "Uptrend" if macd_week > macd_sig_week else "Downtrend"
 
-        ema_status = f"EMA50 ({ema50:.2f}) > EMA100 ({ema100:.2f}) > Close ({close:.2f}) > EMA200 ({ema200:.2f})" if ema50 > ema100 > close > ema200 else "Mixed EMA Structure"
+        if ema50 > ema100 > close > ema200:
+            ema_status = f"EMA50 ({ema50:.2f}) > EMA100 ({ema100:.2f}) > Close ({close:.2f}) > EMA200 ({ema200:.2f})"
+        else:
+            ema_status = "Mixed EMA Structure"
 
         if stoch_alert:
-            message = f"**DCA Alert: {ticker}**\n"
-            message += f"- %K ({k:.2f}) ตัดขึ้น %D ({d:.2f}) ใต้ระดับ 20\n"
-            message += f"- MACD Day: {trend_macd_day}, MACD Week: {trend_macd_week}\n"
-            message += f"- EMA Structure: {ema_status}"
+            message = f"📈 **DCA Alert: {ticker}**\n"
+            message += f"🟢 %K ({k:.2f}) ตัดขึ้น %D ({d:.2f}) ใต้ระดับ 20\n"
+            message += f"📊 MACD: {trend_macd_day} (Day), {trend_macd_week} (Week)\n"
+            message += f"📉 EMA: {ema_status}\n"
+            message += f"🔻 แนวรับ: ${support_14:.2f} / ${support_30:.2f} / ${support_90:.2f}"
             return message
-    except:
-        pass
+    except Exception as e:
+        print(f"Error in {ticker}: {e}")
     return None
 
 # ------------------ DISCORD ------------------
