@@ -1,7 +1,6 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import datetime as dt
 import requests
 import os
 
@@ -39,10 +38,22 @@ def calculate_indicators(df):
     
     return df.dropna()
 
-# ------------------ SIGNAL CHECK ------------------
-def check_signals(df_day, df_week, ticker):
+# ------------------ CHECK STEP 1 ------------------
+def check_stoch_rsi(df, timeframe):
     try:
-        k, d = df_day['%K'].iloc[-1], df_day['%D'].iloc[-1]
+        k = df['%K'].iloc[-1]
+        d = df['%D'].iloc[-1]
+        if k > d and k < 0.2 and d < 0.2:
+            return True, f"🟢 Stochastic RSI ผ่าน ({timeframe}) - %K ({k:.2f}) > %D ({d:.2f}) ต่ำกว่า 20"
+        else:
+            return False, None
+    except Exception as e:
+        print(f"Error in StochRSI check ({timeframe}): {e}")
+        return False, None
+
+# ------------------ CHECK STEP 2 ------------------
+def analyze_stock(df_day, df_week, ticker):
+    try:
         close = df_day['Close'].iloc[-1]
         ema50 = df_day['EMA50'].iloc[-1]
         ema100 = df_day['EMA100'].iloc[-1]
@@ -56,25 +67,20 @@ def check_signals(df_day, df_week, ticker):
         support_30 = df_day['Low'].rolling(30).min().iloc[-1]
         support_90 = df_day['Low'].rolling(90).min().iloc[-1]
 
-        stoch_alert = k > d and k < 0.2 and d < 0.2
-        trend_macd_day = "Uptrend" if macd_day > macd_sig_day else "Downtrend"
-        trend_macd_week = "Uptrend" if macd_week > macd_sig_week else "Downtrend"
+        if macd_day <= macd_sig_day or macd_week <= macd_sig_week:
+            return None
 
-        if ema50 > ema100 > close > ema200:
-            ema_status = f"EMA50 ({ema50:.2f}) > EMA100 ({ema100:.2f}) > Close ({close:.2f}) > EMA200 ({ema200:.2f})"
-        else:
-            ema_status = "Mixed EMA Structure"
+        if not (ema50 > ema100 > close > ema200):
+            return None
 
-        if stoch_alert:
-            message = f"📈 **DCA Alert: {ticker}**\n"
-            message += f"🟢 %K ({k:.2f}) ตัดขึ้น %D ({d:.2f}) ใต้ระดับ 20\n"
-            message += f"📊 MACD: {trend_macd_day} (Day), {trend_macd_week} (Week)\n"
-            message += f"📉 EMA: {ema_status}\n"
-            message += f"🔻 แนวรับ: ${support_14:.2f} / ${support_30:.2f} / ${support_90:.2f}"
-            return message
+        message = f"🚀 **DCA Confirmed: {ticker}**\n"
+        message += f"📈 MACD: Uptrend (Day & Week)\n"
+        message += f"📊 EMA Structure: EMA50 ({ema50:.2f}) > EMA100 ({ema100:.2f}) > Close ({close:.2f}) > EMA200 ({ema200:.2f})\n"
+        message += f"🔻 Supports: 14d=${support_14:.2f}, 30d=${support_30:.2f}, 90d=${support_90:.2f}\n"
+        return message
     except Exception as e:
-        print(f"Error in {ticker}: {e}")
-    return None
+        print(f"Error analyzing {ticker}: {e}")
+        return None
 
 # ------------------ DISCORD ------------------
 def send_to_discord(content):
@@ -85,16 +91,24 @@ def send_to_discord(content):
     requests.post(WEBHOOK_URL, json=payload)
 
 # ------------------ MAIN ------------------
-all_messages = []
 for ticker in TICKERS:
     df_day = calculate_indicators(get_data(ticker, interval="1d", period="2y"))
     df_week = calculate_indicators(get_data(ticker, interval="1wk", period="5y"))
-    signal_msg = check_signals(df_day, df_week, ticker)
-    if signal_msg:
-        all_messages.append(signal_msg)
 
-if all_messages:
-    for msg in all_messages:
+    messages = []
+
+    day_pass, day_message = check_stoch_rsi(df_day, "Day")
+    week_pass, week_message = check_stoch_rsi(df_week, "Week")
+
+    if day_pass:
+        messages.append(f"📣 {ticker} - {day_message}")
+    if week_pass:
+        messages.append(f"📣 {ticker} - {week_message}")
+
+    if day_pass or week_pass:
+        analysis_message = analyze_stock(df_day, df_week, ticker)
+        if analysis_message:
+            messages.append(analysis_message)
+
+    for msg in messages:
         send_to_discord(msg)
-else:
-    send_to_discord("📭 วันนี้ไม่มีหุ้นเข้าเงื่อนไข DCA")
