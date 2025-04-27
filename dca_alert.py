@@ -57,46 +57,34 @@ def check_signals(df_day, df_week, ticker):
         support_90 = df_day['Low'].rolling(90).min().iloc[-1]
 
         # Step 1: Stochastic RSI
-        stoch_alert_day = k > d and k < 0.2 and d < 0.2
-        stoch_alert_week = k > d and k < 0.2 and d < 0.2
+        stoch_alert = k > d and k < 0.2 and d < 0.2
 
-        # Step 2: MACD Trend
+        # Step 2: MACD & EMA Check
         trend_macd_day = "Uptrend" if macd_day > macd_sig_day else "Downtrend"
         trend_macd_week = "Uptrend" if macd_week > macd_sig_week else "Downtrend"
 
-        # EMA structure check
         if ema50 > ema100 > close > ema200:
             ema_status = f"EMA50 ({ema50:.2f}) > EMA100 ({ema100:.2f}) > Close ({close:.2f}) > EMA200 ({ema200:.2f})"
         else:
-            ema_status = f"EMA50 ({ema50:.2f}) > EMA100 ({ema100:.2f}) > Close ({close:.2f}) > EMA200 ({ema200:.2f})"
+            ema_status = "Mixed EMA Structure"
 
-        # Generate messages
-        messages = []
-        
-        # Step 1: Stochastic RSI Alert
-        if stoch_alert_day or stoch_alert_week:
-            timeframe = "Day" if stoch_alert_day else "Week"
-            message = f"📣 **{ticker}** - 🟢 Stochastic RSI ผ่าน ({timeframe}) - %K ({k:.2f}) > %D ({d:.2f}) ต่ำกว่า 20"
-            messages.append(message)
-
-            # Step 2: Check MACD and EMA
-            if macd_day > macd_sig_day and macd_week > macd_sig_week and ema50 > ema100 > close > ema200:
-                message = f"🚀 **DCA Confirmed: {ticker}**\n"
-                message += f"📈 **MACD**: {trend_macd_day} (Day & Week)\n"
-                message += f"📊 **EMA Structure**: {ema_status}\n"
-                message += f"🔻 **Supports**: 14d=${support_14:.2f}, 30d=${support_30:.2f}, 90d=${support_90:.2f}"
-                messages.append(message)
+        if stoch_alert:
+            message = f"📣 **{ticker}** - 🟢 Stochastic RSI ผ่าน (Week) - %K ({k:.2f}) > %D ({d:.2f}) ต่ำกว่า 20\n"
+            if macd_day > macd_sig_day and macd_week > macd_sig_week:
+                message += f"🚀 DCA Confirmed: {ticker}\n"
+                message += f"📈 MACD: Uptrend (Day & Week)\n"
+                message += f"📊 EMA Structure: {ema_status}\n"
+                message += f"🔻 Supports: 14d=${support_14:.2f}, 30d=${support_30:.2f}, 90d=${support_90:.2f}"
             else:
-                message = f"⚠️ **ยังไม่เข้าเงื่อนไข DCA**\n"
-                message += f"📈 **MACD**: {trend_macd_day} (Day), {trend_macd_week} (Week)\n"
-                message += f"📊 **EMA Structure**: {ema_status}\n"
-                message += f"🔻 **Supports**: 14d=${support_14:.2f}, 30d=${support_30:.2f}, 90d=${support_90:.2f}"
-                messages.append(message)
+                message += f"⚠️ ยังไม่เข้าเงื่อนไข DCA\n"
+                message += f"🔎 MACD: {trend_macd_day} (Day), {trend_macd_week} (Week)\n"
+                message += f"📊 EMA Structure: {ema_status}\n"
+                message += f"🔻 Supports: 14d=${support_14:.2f}, 30d=${support_30:.2f}, 90d=${support_90:.2f}"
 
-        return messages
+            return message
     except Exception as e:
         print(f"Error in {ticker}: {e}")
-    return []
+    return None
 
 # ------------------ DISCORD ------------------
 def send_to_discord(content):
@@ -111,13 +99,13 @@ all_messages = []
 for ticker in TICKERS:
     df_day = calculate_indicators(get_data(ticker, interval="1d", period="2y"))
     df_week = calculate_indicators(get_data(ticker, interval="1wk", period="5y"))
-    signal_msgs = check_signals(df_day, df_week, ticker)
-    if signal_msgs:
-        for msg in signal_msgs:
-            all_messages.append(msg)
+    signal_msg = check_signals(df_day, df_week, ticker)
+    if signal_msg:
+        all_messages.append(signal_msg)
 
-if all_messages:
+# ถ้าไม่มีหุ้นเข้าเงื่อนไข
+if not all_messages:
+    send_to_discord("📭 วันนี้ไม่มีหุ้นเข้าเงื่อนไข DCA")
+else:
     for msg in all_messages:
         send_to_discord(msg)
-else:
-    send_to_discord("📭 วันนี้ไม่มีหุ้นเข้าเงื่อนไข DCA")
