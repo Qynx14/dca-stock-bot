@@ -1,111 +1,117 @@
-import yfinance as yf
+import os
+import logging
+import requests
 import pandas as pd
 import numpy as np
-import datetime as dt
-import requests
-import os
+import yfinance as yf
 
 # ------------------ CONFIG ------------------
-TICKERS = ["NVDA", "AMZN", "RKLB", "TSM", "LLY", "AVGO", "HIMS", "PLTR", "TMDX", "ASML", "ARQT", "V", "META", "ABBV", "COST", "IONQ", "MSFT", "SNOW", "TEM", "VST", "CRWD"]
+TICKERS = [
+    "NVDA", "AMZN", "RKLB", "TSM", "LLY", "AVGO",
+    "HIMS", "PLTR", "TMDX", "ASML", "ARQT", "V",
+    "META", "ABBV", "COST", "IONQ", "MSFT", "SNOW",
+    "TEM", "VST", "CRWD"
+]
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
+# ------------------ LOGGER ------------------
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
+
 # ------------------ DATA FETCH ------------------
-def get_data(ticker, interval="1d", period="2y"):
-    return yf.download(ticker, interval=interval, period=period, progress=False)
+def fetch_data(ticker: str, interval: str, period: str) -> pd.DataFrame:
+    """Download historical data for a ticker."""
+    try:
+        df = yf.download(ticker, interval=interval, period=period, progress=False)
+        logging.info(f"Fetched {len(df)} rows for {ticker} ({interval}, {period})")
+        return df
+    except Exception as e:
+        logging.error(f"Error fetching {ticker}: {e}")
+        return pd.DataFrame()
 
 # ------------------ INDICATORS ------------------
-def calculate_indicators(df):
+def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute Stochastic RSI, EMA, and MACD."""
     df = df.copy()
-    
-    # StochRSI
+    # Stochastic RSI
     delta = df['Close'].diff()
     gain = delta.where(delta > 0, 0).rolling(14).mean()
     loss = -delta.where(delta < 0, 0).rolling(14).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
-    stoch_rsi = ((rsi - rsi.rolling(14).min()) / (rsi.rolling(14).max() - rsi.rolling(14).min())).clip(0, 1)
-    df['%K'] = stoch_rsi.rolling(3).mean()
-    df['%D'] = df['%K'].rolling(3).mean()
+    stoch = (rsi - rsi.rolling(14).min()) / (rsi.rolling(14).max() - rsi.rolling(14).min())
+    df['%K'] = stoch.rolling(3).mean().clip(0,1)
+    df['%D'] = df['%K'].rolling(3).mean().clip(0,1)
 
-    # EMA
-    for ema in [50, 100, 200]:
-        df[f'EMA{ema}'] = df['Close'].ewm(span=ema).mean()
+    # EMA50/100/200
+    for span in [50, 100, 200]:
+        df[f'EMA{span}'] = df['Close'].ewm(span=span, adjust=False).mean()
 
-    # MACD
-    exp1 = df['Close'].ewm(span=12).mean()
-    exp2 = df['Close'].ewm(span=26).mean()
-    df['MACD'] = exp1 - exp2
-    df['MACD_signal'] = df['MACD'].ewm(span=9).mean()
-    
+    # MACD & Signal
+    macd_fast = df['Close'].ewm(span=12, adjust=False).mean()
+    macd_slow = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = macd_fast - macd_slow
+    df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+
     return df.dropna()
 
 # ------------------ SIGNAL CHECK ------------------
-def check_signals(df_day, df_week, ticker):
-    try:
-        k, d = df_day['%K'].iloc[-1], df_day['%D'].iloc[-1]
-        close = df_day['Close'].iloc[-1]
-        ema50 = df_day['EMA50'].iloc[-1]
-        ema100 = df_day['EMA100'].iloc[-1]
-        ema200 = df_day['EMA200'].iloc[-1]
-        macd_day = df_day['MACD'].iloc[-1]
-        macd_sig_day = df_day['MACD_signal'].iloc[-1]
-        macd_week = df_week['MACD'].iloc[-1]
-        macd_sig_week = df_week['MACD_signal'].iloc[-1]
-
-        support_14 = df_day['Low'].rolling(14).min().iloc[-1]
-        support_30 = df_day['Low'].rolling(30).min().iloc[-1]
-        support_90 = df_day['Low'].rolling(90).min().iloc[-1]
-
-        # Step 1: Stochastic RSI
-        stoch_alert = k > d and k < 0.2 and d < 0.2
-
-        # Step 2: MACD & EMA Check
-        trend_macd_day = "Uptrend" if macd_day > macd_sig_day else "Downtrend"
-        trend_macd_week = "Uptrend" if macd_week > macd_sig_week else "Downtrend"
-
-        if ema50 > ema100 > close > ema200:
-            ema_status = f"EMA50 ({ema50:.2f}) > EMA100 ({ema100:.2f}) > Close ({close:.2f}) > EMA200 ({ema200:.2f})"
-        else:
-            ema_status = "Mixed EMA Structure"
-
-        if stoch_alert:
-            message = f"📣 **{ticker}** - 🟢 Stochastic RSI ผ่าน (Week) - %K ({k:.2f}) > %D ({d:.2f}) ต่ำกว่า 20\n"
-            if macd_day > macd_sig_day and macd_week > macd_sig_week:
-                message += f"🚀 DCA Confirmed: {ticker}\n"
-                message += f"📈 MACD: Uptrend (Day & Week)\n"
-                message += f"📊 EMA Structure: {ema_status}\n"
-                message += f"🔻 Supports: 14d=${support_14:.2f}, 30d=${support_30:.2f}, 90d=${support_90:.2f}"
-            else:
-                message += f"⚠️ ยังไม่เข้าเงื่อนไข DCA\n"
-                message += f"🔎 MACD: {trend_macd_day} (Day), {trend_macd_week} (Week)\n"
-                message += f"📊 EMA Structure: {ema_status}\n"
-                message += f"🔻 Supports: 14d=${support_14:.2f}, 30d=${support_30:.2f}, 90d=${support_90:.2f}"
-
-            return message
-    except Exception as e:
-        print(f"Error in {ticker}: {e}")
-    return None
+def check_signals(df_day: pd.DataFrame, df_week: pd.DataFrame, ticker: str) -> str:
+    """Return message for tickers passing StochRSI and include MACD, EMA info."""
+    latest = df_day.iloc[-1]
+    k, d = latest['%K'], latest['%D']
+    if k > d and k < 0.2 and d < 0.2:
+        price = latest['Close']
+        ema50, ema100, ema200 = latest['EMA50'], latest['EMA100'], latest['EMA200']
+        macd_d, sig_d = latest['MACD'], latest['Signal']
+        macd_w = df_week['MACD'].iloc[-1]
+        sig_w = df_week['Signal'].iloc[-1]
+        trend_day = "ขาขึ้น" if macd_d > sig_d else "ขาลง"
+        trend_week = "ขาขึ้น" if macd_w > sig_w else "ขาลง"
+        ema_status = (
+            "EMA50>EMA100>ราคา>EMA200" 
+            if ema50 > ema100 > price > ema200 
+            else "โครงสร้าง EMA ไม่ตรงตามเกณฑ์"
+        )
+        msg = (
+            f"📣 **{ticker}** เข้าเงื่อนไข DCA\n"
+            f"• StochRSI: %K={k:.2f}, %D={d:.2f}\n"
+            f"• ราคา: ${price:.2f}\n"
+            f"• MACD Day: {trend_day}, Week: {trend_week}\n"
+            f"• EMA: {ema_status}\n"
+        )
+        return msg
+    return ""
 
 # ------------------ DISCORD ------------------
-def send_to_discord(content):
+def send_to_discord(message: str):
+    """Post message to Discord webhook."""
     if not WEBHOOK_URL:
-        print("Webhook URL not set.")
+        logging.error("DISCORD_WEBHOOK_URL not set")
         return
-    payload = {"content": content}
-    requests.post(WEBHOOK_URL, json=payload)
+    payload = {"content": message}
+    try:
+        resp = requests.post(WEBHOOK_URL, json=payload)
+        resp.raise_for_status()
+        logging.info("Sent to Discord")
+    except Exception as e:
+        logging.error(f"Discord error: {e}")
 
 # ------------------ MAIN ------------------
-all_messages = []
-for ticker in TICKERS:
-    df_day = calculate_indicators(get_data(ticker, interval="1d", period="2y"))
-    df_week = calculate_indicators(get_data(ticker, interval="1wk", period="5y"))
-    signal_msg = check_signals(df_day, df_week, ticker)
-    if signal_msg:
-        all_messages.append(signal_msg)
+def main():
+    msgs = []
+    for t in TICKERS:
+        df_d = calculate_indicators(fetch_data(t, "1d", "2y"))
+        df_w = calculate_indicators(fetch_data(t, "1wk", "5y"))
+        if df_d.empty or df_w.empty:
+            continue
+        m = check_signals(df_d, df_w, t)
+        if m:
+            msgs.append(m)
+    if not msgs:
+        send_to_discord("📭 วันนี้ไม่มีหุ้นเข้าเงื่อนไข DCA")
+    else:
+        for m in msgs:
+            send_to_discord(m)
 
-# ถ้าไม่มีหุ้นเข้าเงื่อนไข
-if not all_messages:
-    send_to_discord("📭 วันนี้ไม่มีหุ้นเข้าเงื่อนไข DCA")
-else:
-    for msg in all_messages:
-        send_to_discord(msg)
+if __name__ == "__main__":
+    main()
