@@ -10,7 +10,8 @@ import logging
 TICKERS = [
     "NVDA", "AMZN", "RKLB", "TSM", "LLY", "AVGO", "HIMS", "PLTR",
     "TMDX", "ASML", "ARQT", "V", "META", "ABBV", "COST", "IONQ",
-    "MSFT", "SNOW", "TEM", "VST", "CRWD"
+    "MSFT", "SNOW", "TEM", "VST", "CRWD", "BBAI", "ALAB", "JPM", 
+    "PRCT"
 ]
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
